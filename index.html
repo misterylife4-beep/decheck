@@ -1,0 +1,798 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>교실 소음 측정기</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fredoka:wght@500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg: #1f3a2e;
+    --bg-soft: #244435;
+    --chalk: #f4f1e8;
+    --chalk-dim: #c9cdc2;
+    --line: rgba(244,241,232,0.14);
+    --quiet: #7cd992;
+    --quiet-dim: #3d6b4a;
+    --caution: #f2c94c;
+    --loud: #ef6a5a;
+    --state-color: var(--quiet);
+    --radius: 22px;
+    font-family: 'Space Grotesk', system-ui, sans-serif;
+  }
+  *{ box-sizing: border-box; }
+  body{
+    margin:0; min-height:100vh;
+    background: radial-gradient(circle at 20% -10%, rgba(244,241,232,0.05), transparent 40%), var(--bg);
+    color: var(--chalk);
+    display:flex; justify-content:center;
+    padding: 24px 16px 60px;
+    -webkit-font-smoothing:antialiased;
+  }
+  .page{ width:100%; max-width: 640px; display:flex; flex-direction:column; gap:20px; }
+
+  .top-row{ display:flex; justify-content:flex-end; }
+  select#langSelect{
+    background: var(--bg-soft);
+    color: var(--chalk);
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    padding: 8px 14px;
+    font-family:'Space Grotesk', sans-serif;
+    font-size: 13px;
+    cursor:pointer;
+  }
+
+  header{ text-align:center; padding-top: 0px; }
+  header h1{
+    font-family:'Fredoka', system-ui, sans-serif;
+    font-weight:600; font-size: clamp(24px, 5vw, 32px);
+    margin: 0 0 6px; letter-spacing: 0.2px;
+  }
+  header p{ margin:0; color: var(--chalk-dim); font-size:14px; line-height:1.5; }
+
+  .stage{
+    background: var(--bg-soft); border: 1px solid var(--line);
+    border-radius: var(--radius); padding: 32px 20px 26px;
+    position:relative; overflow:hidden; transition: box-shadow 0.4s ease;
+  }
+  .stage.alert-pulse{ animation: pulseBorder 0.9s ease-in-out infinite; }
+  @keyframes pulseBorder{
+    0%, 100% { box-shadow: 0 0 0 0 rgba(239,106,90,0); }
+    50% { box-shadow: 0 0 0 10px rgba(239,106,90,0.12); }
+  }
+  .gauge-wrap{ display:flex; justify-content:center; margin-bottom: 6px; }
+  .gauge{ width: min(72vw, 300px); height: auto; }
+  .gauge-track{ stroke: rgba(244,241,232,0.1); }
+  .gauge-fill{
+    stroke: var(--state-color); transition: stroke-dashoffset 0.25s ease-out, stroke 0.4s ease;
+    stroke-linecap: round;
+  }
+  .gauge-number{ font-size: 58px; font-weight:700; fill: var(--chalk); font-family:'Space Grotesk', sans-serif; }
+  .gauge-unit{ font-size: 14px; fill: var(--chalk-dim); }
+  .face{ text-align:center; font-size: 46px; line-height:1; margin-bottom: 4px; }
+  .status-label{
+    text-align:center; font-family:'Fredoka', sans-serif; font-weight:600;
+    font-size: 22px; color: var(--state-color); transition: color 0.4s ease; margin-bottom: 22px;
+  }
+  .controls{ display:flex; justify-content:center; gap:12px; }
+  button{
+    font-family:'Fredoka', sans-serif; font-weight:600; font-size: 15px;
+    border-radius: 999px; padding: 12px 26px; border: 1px solid var(--line);
+    cursor:pointer; background: transparent; color: var(--chalk);
+    transition: background 0.2s ease, transform 0.1s ease, border-color 0.2s ease;
+  }
+  button:active{ transform: scale(0.97); }
+  button.primary{ background: var(--chalk); color: var(--bg); border-color: transparent; }
+  button.primary.on{ background: var(--loud); color: var(--chalk); }
+  button.ghost{ background: transparent; }
+  button:disabled{ opacity: 0.5; cursor: not-allowed; }
+  button.small{ padding: 9px 18px; font-size: 13px; }
+
+  .mic-note{ text-align:center; font-size: 13px; color: var(--chalk-dim); margin-top: 14px; min-height: 0px; }
+
+  .error-panel{
+    display:none; margin-top: 16px; background: rgba(239,106,90,0.1);
+    border: 1px solid rgba(239,106,90,0.35); border-radius: 14px; padding: 16px 18px;
+  }
+  .error-panel.show{ display:block; }
+  .error-panel h3{
+    margin: 0 0 8px; font-family:'Fredoka', sans-serif; font-size: 15px; color: var(--loud);
+  }
+  .error-panel ol{ margin: 0 0 12px; padding-left: 18px; font-size: 13px; line-height: 1.7; color: var(--chalk); }
+  .error-panel .retry-row{ display:flex; justify-content:center; gap:10px; flex-wrap:wrap; }
+  .iframe-warn{
+    display:none; background: rgba(242,201,76,0.12); border: 1px solid rgba(242,201,76,0.4);
+    border-radius: 12px; padding: 12px 14px; margin-bottom: 14px; font-size: 13px; line-height:1.6;
+  }
+  .iframe-warn.show{ display:block; }
+  .iframe-warn .open-tab-row{ display:flex; justify-content:center; margin-top: 10px; }
+
+  section.card{ background: var(--bg-soft); border: 1px solid var(--line); border-radius: var(--radius); padding: 20px 20px 18px; }
+  section.card h2{ font-family:'Fredoka', sans-serif; font-size: 16px; font-weight:600; margin: 0 0 14px; }
+  section.card .card-desc{ font-size: 13px; color: var(--chalk-dim); line-height:1.6; margin: -8px 0 16px; }
+
+  .history-canvas{ width:100%; height: 90px; display:block; border-radius: 10px; background: rgba(0,0,0,0.15); }
+
+  .thresholds{ display:flex; flex-direction:column; gap: 18px; margin-top: 4px; }
+  .threshold-row label{ display:flex; justify-content:space-between; font-size: 13px; color: var(--chalk-dim); margin-bottom: 6px; }
+  .threshold-row label span:last-child{ color: var(--chalk); font-weight:600; }
+  input[type="range"]{
+    -webkit-appearance:none; width:100%; height: 6px; border-radius:3px;
+    background: rgba(244,241,232,0.15); outline:none;
+  }
+  input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none; width:18px; height:18px; border-radius:50%;
+    background: var(--chalk); cursor:pointer; border: 3px solid var(--bg-soft); box-shadow: 0 0 0 1px var(--line);
+  }
+  input[type="range"]::-moz-range-thumb{
+    width:18px; height:18px; border-radius:50%; background: var(--chalk); cursor:pointer; border: 3px solid var(--bg-soft);
+  }
+
+  .stats{ display:grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+  .stat{ background: rgba(0,0,0,0.15); border-radius: 12px; padding: 14px 14px; }
+  .stat .num{ font-size: 22px; font-weight:700; }
+  .stat .lbl{ font-size: 12px; color: var(--chalk-dim); margin-top:2px; }
+
+  .calib-row{ display:flex; align-items:center; gap:14px; flex-wrap:wrap; }
+  .calib-status{ font-size: 13px; color: var(--chalk-dim); flex:1; min-width: 160px; }
+  .calib-status b{ color: var(--chalk); }
+
+  .weekly-chart{ display:flex; align-items:flex-end; gap: 8px; height: 110px; margin-top: 4px; }
+  .weekly-bar-wrap{ flex:1; display:flex; flex-direction:column; align-items:center; justify-content:flex-end; height:100%; gap:6px; }
+  .weekly-bar{ width: 100%; max-width: 30px; border-radius: 6px 6px 3px 3px; background: var(--quiet-dim, #3d6b4a); min-height: 4px; transition: height 0.3s ease, background 0.3s ease; }
+  .weekly-label{ font-size: 11px; color: var(--chalk-dim); }
+  .weekly-empty{ font-size: 13px; color: var(--chalk-dim); text-align:center; padding: 20px 0; }
+  .weekly-footer-row{ display:flex; justify-content:flex-end; margin-top: 12px; }
+
+  footer{ text-align:center; font-size:12px; color: var(--chalk-dim); line-height:1.6; padding: 4px 12px; }
+
+  @media (max-width: 420px){ .gauge-number{ font-size: 46px; } }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="top-row">
+    <select id="langSelect">
+      <option value="ko">한국어</option>
+      <option value="en">English</option>
+      <option value="ja">日本語</option>
+      <option value="zh">中文</option>
+    </select>
+  </div>
+
+  <header>
+    <h1 data-i18n="title">교실 소음 측정기</h1>
+    <p data-i18n="subtitle">마이크로 교실의 소음 정도를 실시간으로 확인해요.<br>정확한 데시벨이 아니라, 상대적인 소음 크기를 보여줘요.</p>
+  </header>
+
+  <div class="stage" id="stage">
+    <div class="gauge-wrap">
+      <svg class="gauge" viewBox="0 0 220 220">
+        <circle class="gauge-track" cx="110" cy="110" r="92" fill="none" stroke-width="16"/>
+        <circle id="gaugeFill" class="gauge-fill" cx="110" cy="110" r="92" fill="none" stroke-width="16"
+          stroke-dasharray="578" stroke-dashoffset="578" transform="rotate(-90 110 110)"/>
+        <text x="110" y="104" text-anchor="middle" class="gauge-number" id="levelNumber">0</text>
+        <text x="110" y="130" text-anchor="middle" class="gauge-unit" id="gaugeUnitLabel">소음 지수</text>
+      </svg>
+    </div>
+    <div class="face" id="face">😴</div>
+    <div class="status-label" id="statusLabel">대기 중</div>
+    <div class="controls">
+      <button class="primary" id="toggleBtn">측정 시작</button>
+    </div>
+    <div class="mic-note" id="micNote"></div>
+
+    <div class="error-panel" id="errorPanel">
+      <h3 data-i18n="errTitle">마이크를 사용할 수 없어요</h3>
+      <div class="iframe-warn" id="iframeWarn">
+        <span id="iframeWarnText"></span>
+        <div class="open-tab-row">
+          <button class="small" id="openTabBtn"></button>
+        </div>
+      </div>
+      <ol id="errorSteps"></ol>
+      <div class="retry-row">
+        <button class="small" id="retryBtn" data-i18n="retryBtn">다시 시도</button>
+      </div>
+    </div>
+  </div>
+
+  <section class="card">
+    <h2 data-i18n="historyTitle">최근 60초 기록</h2>
+    <canvas class="history-canvas" id="historyCanvas"></canvas>
+    <div class="stats">
+      <div class="stat">
+        <div class="num" id="avgStat">–</div>
+        <div class="lbl" data-i18n="avgLabel">평균 소음 지수</div>
+      </div>
+      <div class="stat">
+        <div class="num" id="loudStat">0초</div>
+        <div class="lbl" data-i18n="loudLabel">시끄러웠던 시간</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="calibTitle">캘리브레이션</h2>
+    <p class="card-desc" data-i18n="calibDesc">기기마다 마이크 감도가 달라요. 교실이 조용할 때 기준을 맞추면 더 정확해져요.</p>
+    <div class="calib-row">
+      <button class="small ghost" id="calibrateBtn" data-i18n="calibBtn">조용한 상태로 기준 맞추기</button>
+      <button class="small ghost" id="calibResetBtn" data-i18n="calibResetBtn">기본값으로</button>
+    </div>
+    <div class="calib-status" id="calibStatus" style="margin-top:12px;"></div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="thresholdsTitle">기준 설정</h2>
+    <div class="thresholds">
+      <div class="threshold-row">
+        <label><span data-i18n="cautionThresholdLabel">주의 기준 (노랑)</span><span id="cautionVal">35</span></label>
+        <input type="range" id="caution-slider" min="5" max="95" value="35">
+      </div>
+      <div class="threshold-row">
+        <label><span data-i18n="loudThresholdLabel">위험 기준 (빨강)</span><span id="loudVal">65</span></label>
+        <input type="range" id="loud-slider" min="10" max="100" value="65">
+      </div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 data-i18n="weeklyTitle">주간 기록</h2>
+    <div id="weeklyChart"></div>
+    <div class="weekly-footer-row">
+      <button class="small ghost" id="weeklyResetBtn" data-i18n="weeklyResetBtn">기록 초기화</button>
+    </div>
+  </section>
+
+  <footer data-i18n="footerNote">
+    브라우저 마이크는 기기마다 감도가 달라 절대적인 dB(SPL) 값과는 차이가 있어요. 같은 교실, 같은 기기로 꾸준히 사용할 때 가장 유용해요. 소리 데이터는 저장되거나 전송되지 않고, 통계는 이 브라우저에만 저장돼요.
+  </footer>
+
+</div>
+
+<script>
+(function(){
+  // ---------- i18n ----------
+  const STRINGS = {
+    ko: {
+      title: '교실 소음 측정기',
+      subtitle: '마이크로 교실의 소음 정도를 실시간으로 확인해요.<br>정확한 데시벨이 아니라, 상대적인 소음 크기를 보여줘요.',
+      gaugeUnit: '소음 지수',
+      startBtn: '측정 시작', stopBtn: '측정 중지',
+      idleLabel: '대기 중', quietLabel: '조용해요', cautionLabel: '조금 시끄러워요', loudLabel: '너무 시끄러워요!',
+      micRequesting: '마이크 권한을 요청하고 있어요…',
+      errTitle: '마이크를 사용할 수 없어요',
+      errSteps: [
+        '한 번 "차단"을 누르면 브라우저가 다시 묻지 않아요. 주소창 왼쪽의 자물쇠(또는 정보) 아이콘을 눌러 "마이크" 권한을 "허용"으로 바꾸고 새로고침하세요.',
+        '컴퓨터 설정에서 이 브라우저의 마이크 접근이 허용되어 있는지 확인하세요 (Windows: 설정 › 개인정보 보호 및 보안 › 마이크 / Mac: 시스템 설정 › 개인정보 보호 및 보안 › 마이크).',
+        '줌, 팀즈 같은 다른 프로그램이 마이크를 쓰고 있다면 종료한 뒤 다시 시도하세요.',
+        '채팅 안의 미리보기 패널에서 열었다면, 이 페이지 링크를 새 탭에서 직접 열어보세요.'
+      ],
+      retryBtn: '다시 시도',
+      iframeWarnText: '지금 채팅 미리보기(iframe) 안에서 열려 있어요. 브라우저 설정에서 마이크를 이미 허용했더라도, 미리보기 패널 안에서는 권한이 자동으로 차단될 수 있어요. 아래 버튼으로 이 페이지를 새 탭에서 열어보세요.',
+      openTabBtn: '새 탭에서 열기',
+      micOtherError: '마이크에 연결할 수 없어요: ',
+      historyTitle: '최근 60초 기록', avgLabel: '평균 소음 지수', loudLabel2: '시끄러웠던 시간', loudUnit: '초',
+      calibTitle: '캘리브레이션',
+      calibDesc: '기기마다 마이크 감도가 달라요. 교실이 조용할 때 기준을 맞추면 더 정확해져요.',
+      calibBtn: '조용한 상태로 기준 맞추기', calibResetBtn: '기본값으로',
+      calibNeedListening: '먼저 "측정 시작"을 눌러 마이크를 켜주세요.',
+      calibCounting: (n) => `조용히 해주세요… ${n}초`,
+      calibDone: (d) => `캘리브레이션 완료! (${d})`,
+      calibNotSet: '아직 캘리브레이션하지 않았어요 (기본값 사용 중)',
+      calibIsSet: '캘리브레이션 완료됨',
+      calibResetDone: '기본값으로 되돌렸어요',
+      thresholdsTitle: '기준 설정',
+      cautionThresholdLabel: '주의 기준 (노랑)', loudThresholdLabel: '위험 기준 (빨강)',
+      weeklyTitle: '주간 기록', weeklyResetBtn: '기록 초기화', weeklyEmpty: '아직 기록된 데이터가 없어요',
+      weeklyResetConfirm: '지난 기록을 모두 지울까요?',
+      footerNote: '브라우저 마이크는 기기마다 감도가 달라 절대적인 dB(SPL) 값과는 차이가 있어요. 같은 교실, 같은 기기로 꾸준히 사용할 때 가장 유용해요. 소리 데이터는 저장되거나 전송되지 않고, 통계는 이 브라우저에만 저장돼요.',
+      locale: 'ko-KR'
+    },
+    en: {
+      title: 'Classroom Noise Meter',
+      subtitle: "See your classroom's noise level live from your microphone.<br>This shows a relative noise level, not a calibrated decibel reading.",
+      gaugeUnit: 'noise index',
+      startBtn: 'Start', stopBtn: 'Stop',
+      idleLabel: 'Standing by', quietLabel: 'Quiet', cautionLabel: 'Getting loud', loudLabel: 'Too loud!',
+      micRequesting: 'Requesting microphone access…',
+      errTitle: 'Microphone unavailable',
+      errSteps: [
+        "Once you block access, the browser won't ask again. Click the lock/info icon in the address bar, set Microphone to \"Allow\", then reload.",
+        "Check your computer's privacy settings allow this browser to use the microphone (Windows: Settings › Privacy & security › Microphone / Mac: System Settings › Privacy & Security › Microphone).",
+        'Close other apps using the microphone, like Zoom or Teams, then try again.',
+        'If you opened this inside a chat preview panel, open the page link directly in a new tab instead.'
+      ],
+      retryBtn: 'Try again',
+      iframeWarnText: "This page is open inside a chat preview panel (iframe). Even if you already allowed the microphone in your browser settings, a preview panel can still auto-block access. Use the button below to open this page in a new tab.",
+      openTabBtn: 'Open in new tab',
+      micOtherError: 'Could not connect to microphone: ',
+      historyTitle: 'Last 60 seconds', avgLabel: 'Average noise index', loudLabel2: 'Time spent loud', loudUnit: 's',
+      calibTitle: 'Calibration',
+      calibDesc: 'Microphone sensitivity varies by device. Calibrate while the room is quiet for more accurate readings.',
+      calibBtn: 'Calibrate to quiet room', calibResetBtn: 'Reset to default',
+      calibNeedListening: 'Start listening first, then calibrate.',
+      calibCounting: (n) => `Stay quiet… ${n}s`,
+      calibDone: (d) => `Calibration done! (${d})`,
+      calibNotSet: 'Not calibrated yet (using default)',
+      calibIsSet: 'Calibrated',
+      calibResetDone: 'Reset to default',
+      thresholdsTitle: 'Thresholds',
+      cautionThresholdLabel: 'Caution (yellow)', loudThresholdLabel: 'Too loud (red)',
+      weeklyTitle: 'Weekly history', weeklyResetBtn: 'Clear history', weeklyEmpty: 'No data recorded yet',
+      weeklyResetConfirm: 'Clear all recorded history?',
+      footerNote: "Browser microphones vary by device, so this isn't a calibrated dB(SPL) reading. Most useful used consistently in the same room, on the same device. Audio is never stored or sent anywhere; stats are saved only in this browser.",
+      locale: 'en-US'
+    },
+    ja: {
+      title: '教室 騒音メーター',
+      subtitle: 'マイクで教室の音の大きさをリアルタイムに表示します。<br>正確なデシベル値ではなく、相対的な騒音レベルです。',
+      gaugeUnit: '騒音指数',
+      startBtn: '計測開始', stopBtn: '計測停止',
+      idleLabel: '待機中', quietLabel: '静かです', cautionLabel: '少しうるさいです', loudLabel: 'うるさすぎます！',
+      micRequesting: 'マイクの許可をリクエスト中…',
+      errTitle: 'マイクを使用できません',
+      errSteps: [
+        '一度「ブロック」を押すと再表示されません。アドレスバーの鍵アイコンから「マイク」を「許可」にして再読み込みしてください。',
+        'パソコンの設定でこのブラウザのマイク使用が許可されているか確認してください（Windows: 設定›プライバシー›マイク / Mac: システム設定›プライバシーとセキュリティ›マイク）。',
+        'Zoom や Teams など他のアプリがマイクを使用中の場合は終了してから再試行してください。',
+        'チャット内のプレビューパネルで開いている場合は、このページを新しいタブで直接開いてください。'
+      ],
+      retryBtn: '再試行',
+      iframeWarnText: '現在このページはチャットのプレビューパネル（iframe）内で開かれています。ブラウザ設定でマイクを許可していても、プレビューパネル内では自動的にブロックされることがあります。下のボタンで新しいタブで開いてください。',
+      openTabBtn: '新しいタブで開く',
+      micOtherError: 'マイクに接続できません: ',
+      historyTitle: '直近60秒の記録', avgLabel: '平均騒音指数', loudLabel2: 'うるさかった時間', loudUnit: '秒',
+      calibTitle: 'キャリブレーション',
+      calibDesc: 'マイクの感度は機器によって異なります。教室が静かなときに基準を合わせると精度が上がります。',
+      calibBtn: '静かな状態で基準を合わせる', calibResetBtn: '初期値に戻す',
+      calibNeedListening: 'まず「計測開始」を押してマイクをオンにしてください。',
+      calibCounting: (n) => `静かにしてください… ${n}秒`,
+      calibDone: (d) => `キャリブレーション完了！（${d}）`,
+      calibNotSet: 'まだキャリブレーションされていません（初期値を使用中）',
+      calibIsSet: 'キャリブレーション済み',
+      calibResetDone: '初期値に戻しました',
+      thresholdsTitle: '基準の設定',
+      cautionThresholdLabel: '注意ライン（黄）', loudThresholdLabel: '危険ライン（赤）',
+      weeklyTitle: '週間記録', weeklyResetBtn: '記録を消去', weeklyEmpty: 'まだ記録がありません',
+      weeklyResetConfirm: 'これまでの記録をすべて消去しますか？',
+      footerNote: 'ブラウザのマイクは機器によって感度が異なるため、正確なdB(SPL)値とは異なります。同じ教室、同じ機器で継続して使うのが最適です。音声データは保存・送信されず、統計はこのブラウザにのみ保存されます。',
+      locale: 'ja-JP'
+    },
+    zh: {
+      title: '教室噪音检测器',
+      subtitle: '通过麦克风实时查看教室的噪音水平。<br>这是相对噪音水平，并非经过校准的分贝值。',
+      gaugeUnit: '噪音指数',
+      startBtn: '开始检测', stopBtn: '停止检测',
+      idleLabel: '待机中', quietLabel: '很安静', cautionLabel: '有点吵', loudLabel: '太吵了！',
+      micRequesting: '正在请求麦克风权限…',
+      errTitle: '无法使用麦克风',
+      errSteps: [
+        '一旦点击过"阻止"，浏览器就不会再次询问。请点击地址栏左侧的锁形图标，将"麦克风"设为"允许"，然后刷新页面。',
+        '请检查电脑设置中是否允许此浏览器使用麦克风（Windows：设置›隐私和安全性›麦克风 / Mac：系统设置›隐私与安全性›麦克风）。',
+        '如果 Zoom、Teams 等其他程序正在占用麦克风，请先关闭它们再重试。',
+        '如果是在聊天的预览面板中打开的，请在新标签页中直接打开此页面链接。'
+      ],
+      retryBtn: '重试',
+      iframeWarnText: '此页面目前在聊天预览面板（iframe）中打开。即使您已在浏览器设置中允许麦克风，预览面板内仍可能自动阻止访问。请点击下方按钮在新标签页中打开此页面。',
+      openTabBtn: '在新标签页中打开',
+      micOtherError: '无法连接麦克风: ',
+      historyTitle: '最近60秒记录', avgLabel: '平均噪音指数', loudLabel2: '吵闹持续时间', loudUnit: '秒',
+      calibTitle: '校准',
+      calibDesc: '不同设备的麦克风灵敏度不同。在教室安静时进行校准可以提高准确度。',
+      calibBtn: '在安静状态下校准', calibResetBtn: '恢复默认值',
+      calibNeedListening: '请先点击"开始检测"以开启麦克风。',
+      calibCounting: (n) => `请保持安静… ${n}秒`,
+      calibDone: (d) => `校准完成！(${d})`,
+      calibNotSet: '尚未校准（使用默认值）',
+      calibIsSet: '已校准',
+      calibResetDone: '已恢复默认值',
+      thresholdsTitle: '阈值设置',
+      cautionThresholdLabel: '注意阈值（黄）', loudThresholdLabel: '危险阈值（红）',
+      weeklyTitle: '每周记录', weeklyResetBtn: '清除记录', weeklyEmpty: '暂无记录数据',
+      weeklyResetConfirm: '确定要清除所有历史记录吗？',
+      footerNote: '浏览器麦克风灵敏度因设备而异，因此并非经过校准的 dB(SPL) 数值。在同一教室、同一设备上持续使用效果最佳。音频不会被保存或上传，统计数据仅保存在此浏览器中。',
+      locale: 'zh-CN'
+    }
+  };
+
+  let lang = localStorage.getItem('classroom-noise-lang') || 'ko';
+  const langSelect = document.getElementById('langSelect');
+  langSelect.value = lang;
+
+  function t(){ return STRINGS[lang]; }
+
+  function applyStaticLanguage(){
+    document.documentElement.lang = lang;
+    document.querySelectorAll('[data-i18n]').forEach(el => {
+      const key = el.getAttribute('data-i18n');
+      const val = t()[key];
+      if(typeof val === 'string') el.innerHTML = val;
+    });
+    document.getElementById('gaugeUnitLabel').textContent = t().gaugeUnit;
+    toggleBtn.textContent = listening ? t().stopBtn : t().startBtn;
+    if(!listening) statusLabel.textContent = t().idleLabel;
+    else applyState(currentStateKey);
+    renderErrorSteps();
+    updateCalibStatus();
+    updateStatsDisplay();
+    renderWeekly();
+  }
+
+  langSelect.addEventListener('change', () => {
+    lang = langSelect.value;
+    try{ localStorage.setItem('classroom-noise-lang', lang); }catch(e){}
+    applyStaticLanguage();
+  });
+
+  // ---------- core elements ----------
+  const toggleBtn = document.getElementById('toggleBtn');
+  const micNote = document.getElementById('micNote');
+  const stage = document.getElementById('stage');
+  const levelNumber = document.getElementById('levelNumber');
+  const gaugeFill = document.getElementById('gaugeFill');
+  const face = document.getElementById('face');
+  const statusLabel = document.getElementById('statusLabel');
+  const historyCanvas = document.getElementById('historyCanvas');
+  const ctx = historyCanvas.getContext('2d');
+  const cautionSlider = document.getElementById('caution-slider');
+  const loudSlider = document.getElementById('loud-slider');
+  const cautionVal = document.getElementById('cautionVal');
+  const loudVal = document.getElementById('loudVal');
+  const avgStat = document.getElementById('avgStat');
+  const loudStat = document.getElementById('loudStat');
+  const errorPanel = document.getElementById('errorPanel');
+  const errorSteps = document.getElementById('errorSteps');
+  const retryBtn = document.getElementById('retryBtn');
+  const iframeWarn = document.getElementById('iframeWarn');
+  const iframeWarnText = document.getElementById('iframeWarnText');
+  const openTabBtn = document.getElementById('openTabBtn');
+  const inIframe = (function(){
+    try{ return window.self !== window.top; }catch(e){ return true; }
+  })();
+  const calibrateBtn = document.getElementById('calibrateBtn');
+  const calibResetBtn = document.getElementById('calibResetBtn');
+  const calibStatus = document.getElementById('calibStatus');
+  const weeklyChart = document.getElementById('weeklyChart');
+  const weeklyResetBtn = document.getElementById('weeklyResetBtn');
+
+  const CIRC = 578;
+  const root = document.documentElement;
+
+  let audioCtx, analyser, source, dataArray, rafId;
+  let listening = false;
+  let smoothed = 0;
+  let history = [];
+  let loudSeconds = 0;
+  let lastTick = null;
+  let currentStateKey = 'idle';
+  let calibrating = false;
+
+  // ---------- thresholds ----------
+  function loadThresholds(){
+    try{
+      const raw = localStorage.getItem('classroom-noise-thresholds');
+      if(raw){
+        const th = JSON.parse(raw);
+        if(typeof th.caution === 'number') cautionSlider.value = th.caution;
+        if(typeof th.loud === 'number') loudSlider.value = th.loud;
+      }
+    }catch(e){}
+  }
+  function saveThresholds(){
+    try{
+      localStorage.setItem('classroom-noise-thresholds', JSON.stringify({
+        caution: Number(cautionSlider.value), loud: Number(loudSlider.value)
+      }));
+    }catch(e){}
+  }
+  loadThresholds();
+  function syncSliderLabels(){
+    if(Number(loudSlider.value) < Number(cautionSlider.value) + 5){
+      loudSlider.value = Number(cautionSlider.value) + 5;
+    }
+    cautionVal.textContent = cautionSlider.value;
+    loudVal.textContent = loudSlider.value;
+  }
+  syncSliderLabels();
+  cautionSlider.addEventListener('input', () => { syncSliderLabels(); saveThresholds(); drawHistory(); });
+  loudSlider.addEventListener('input', () => { syncSliderLabels(); saveThresholds(); drawHistory(); });
+
+  function classify(level){
+    const c = Number(cautionSlider.value), l = Number(loudSlider.value);
+    if(level < c) return 'quiet';
+    if(level < l) return 'caution';
+    return 'loud';
+  }
+  const stateColor = { quiet: '#7cd992', caution: '#f2c94c', loud: '#ef6a5a', idle: '#f4f1e8' };
+  const stateFace  = { quiet: '😊', caution: '😐', loud: '😣', idle: '😴' };
+  const stateLabelKey = { quiet: 'quietLabel', caution: 'cautionLabel', loud: 'loudLabel', idle: 'idleLabel' };
+
+  function applyState(key){
+    currentStateKey = key;
+    root.style.setProperty('--state-color', stateColor[key]);
+    face.textContent = stateFace[key];
+    statusLabel.textContent = t()[stateLabelKey[key]];
+    stage.classList.toggle('alert-pulse', key === 'loud');
+  }
+
+  // ---------- calibration ----------
+  function getBaseline(){
+    try{
+      const raw = localStorage.getItem('classroom-noise-baseline');
+      if(raw){ const v = JSON.parse(raw); if(typeof v.dbfs === 'number') return v; }
+    }catch(e){}
+    return null;
+  }
+  function updateCalibStatus(){
+    const b = getBaseline();
+    calibStatus.innerHTML = b
+      ? `<b>${t().calibIsSet}</b> · ${new Date(b.savedAt).toLocaleDateString(t().locale)}`
+      : t().calibNotSet;
+  }
+  updateCalibStatus();
+
+  calibrateBtn.addEventListener('click', () => {
+    if(!listening){ calibStatus.textContent = t().calibNeedListening; return; }
+    if(calibrating) return;
+    calibrating = true;
+    const samples = [];
+    let secondsLeft = 3;
+    calibStatus.textContent = t().calibCounting(secondsLeft);
+    const iv = setInterval(() => {
+      secondsLeft -= 1;
+      if(secondsLeft > 0){
+        calibStatus.textContent = t().calibCounting(secondsLeft);
+      }else{
+        clearInterval(iv);
+        const avg = samples.length ? samples.reduce((a,b)=>a+b,0)/samples.length : -65;
+        const rec = { dbfs: avg, savedAt: Date.now() };
+        try{ localStorage.setItem('classroom-noise-baseline', JSON.stringify(rec)); }catch(e){}
+        calibrating = false;
+        calibStatus.textContent = t().calibDone(new Date(rec.savedAt).toLocaleTimeString(t().locale));
+        setTimeout(updateCalibStatus, 1800);
+      }
+    }, 1000);
+    window.__calibCollect = (dbfs) => samples.push(dbfs);
+    setTimeout(() => { window.__calibCollect = null; }, 3200);
+  });
+
+  calibResetBtn.addEventListener('click', () => {
+    try{ localStorage.removeItem('classroom-noise-baseline'); }catch(e){}
+    calibStatus.textContent = t().calibResetDone;
+    setTimeout(updateCalibStatus, 1500);
+  });
+
+  // ---------- daily stats ----------
+  const DAILY_KEY = 'classroom-noise-daily';
+  let dailyAccum = { sum: 0, count: 0 };
+  let lastFlush = performance.now ? performance.now() : Date.now();
+
+  function todayKey(){
+    const d = new Date();
+    return d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+  }
+  function loadDaily(){
+    try{
+      const raw = localStorage.getItem(DAILY_KEY);
+      return raw ? JSON.parse(raw) : {};
+    }catch(e){ return {}; }
+  }
+  function saveDaily(data){
+    try{ localStorage.setItem(DAILY_KEY, JSON.stringify(data)); }catch(e){}
+  }
+  function flushDaily(){
+    if(dailyAccum.count === 0) return;
+    const data = loadDaily();
+    const key = todayKey();
+    const prev = data[key] || { sum: 0, count: 0, loudSeconds: 0 };
+    prev.sum += dailyAccum.sum;
+    prev.count += dailyAccum.count;
+    data[key] = prev;
+    const keys = Object.keys(data).sort();
+    while(keys.length > 30){ delete data[keys.shift()]; }
+    saveDaily(data);
+    dailyAccum = { sum: 0, count: 0 };
+    renderWeekly();
+  }
+  function flushLoudSeconds(deltaLoud){
+    if(deltaLoud <= 0) return;
+    const data = loadDaily();
+    const key = todayKey();
+    const prev = data[key] || { sum: 0, count: 0, loudSeconds: 0 };
+    prev.loudSeconds = (prev.loudSeconds || 0) + deltaLoud;
+    data[key] = prev;
+    saveDaily(data);
+  }
+
+  function renderWeekly(){
+    const data = loadDaily();
+    const days = [];
+    for(let i=6;i>=0;i--){
+      const d = new Date();
+      d.setDate(d.getDate() - i);
+      const key = d.getFullYear() + '-' + String(d.getMonth()+1).padStart(2,'0') + '-' + String(d.getDate()).padStart(2,'0');
+      const rec = data[key];
+      const avg = rec && rec.count ? rec.sum / rec.count : null;
+      days.push({ date: d, avg });
+    }
+    const hasAny = days.some(d => d.avg !== null);
+    if(!hasAny){
+      weeklyChart.innerHTML = `<div class="weekly-empty">${t().weeklyEmpty}</div>`;
+      return;
+    }
+    const fmt = new Intl.DateTimeFormat(t().locale, { weekday: 'short' });
+    let html = '<div class="weekly-chart">';
+    days.forEach(d => {
+      const pct = d.avg === null ? 0 : Math.max(4, Math.round(d.avg));
+      const color = d.avg === null ? 'rgba(244,241,232,0.12)' : (d.avg < Number(cautionSlider.value) ? '#7cd992' : d.avg < Number(loudSlider.value) ? '#f2c94c' : '#ef6a5a');
+      html += `<div class="weekly-bar-wrap">
+        <div class="weekly-bar" style="height:${pct}%; background:${color};"></div>
+        <div class="weekly-label">${fmt.format(d.date)}</div>
+      </div>`;
+    });
+    html += '</div>';
+    weeklyChart.innerHTML = html;
+  }
+  renderWeekly();
+
+  weeklyResetBtn.addEventListener('click', () => {
+    if(confirm(t().weeklyResetConfirm)){
+      try{ localStorage.removeItem(DAILY_KEY); }catch(e){}
+      renderWeekly();
+    }
+  });
+
+  // ---------- history / gauge loop ----------
+  function resizeCanvas(){
+    const rect = historyCanvas.getBoundingClientRect();
+    historyCanvas.width = rect.width * devicePixelRatio;
+    historyCanvas.height = rect.height * devicePixelRatio;
+  }
+  window.addEventListener('resize', resizeCanvas);
+
+  function drawHistory(){
+    resizeCanvas();
+    const w = historyCanvas.width, h = historyCanvas.height;
+    ctx.clearRect(0,0,w,h);
+    const c = Number(cautionSlider.value) / 100;
+    const l = Number(loudSlider.value) / 100;
+    ctx.fillStyle = 'rgba(242,201,76,0.07)';
+    ctx.fillRect(0, h*(1-l), w, h*(l-c));
+    ctx.fillStyle = 'rgba(239,106,90,0.09)';
+    ctx.fillRect(0, 0, w, h*(1-l));
+    if(history.length < 2) return;
+    ctx.beginPath();
+    ctx.lineWidth = 2 * devicePixelRatio;
+    ctx.strokeStyle = getComputedStyle(root).getPropertyValue('--state-color').trim() || '#7cd992';
+    ctx.lineJoin = 'round';
+    history.forEach((pt, i) => {
+      const x = (i/(history.length-1)) * w;
+      const y = h - (pt.level/100) * h;
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    });
+    ctx.stroke();
+  }
+
+  function updateStatsDisplay(){
+    avgStat.textContent = history.length ? Math.round(history.reduce((s,p)=>s+p.level,0) / history.length) : '–';
+    loudStat.textContent = Math.round(loudSeconds) + t().loudUnit;
+  }
+
+  function frame(){
+    analyser.getFloatTimeDomainData(dataArray);
+    let sumSquares = 0;
+    for(let i=0;i<dataArray.length;i++){ sumSquares += dataArray[i]*dataArray[i]; }
+    const rms = Math.sqrt(sumSquares/dataArray.length);
+    const dbfs = 20 * Math.log10(rms || 0.00001);
+
+    if(window.__calibCollect) window.__calibCollect(dbfs);
+
+    const baseline = getBaseline();
+    const quietRef = baseline ? baseline.dbfs : -65;
+    const raw = Math.max(0, Math.min(100, ((dbfs - quietRef) / 55) * 100));
+
+    smoothed = smoothed + (raw - smoothed) * 0.18;
+    const level = Math.round(smoothed);
+    const key = classify(level);
+    applyState(key);
+
+    levelNumber.textContent = level;
+    gaugeFill.style.strokeDashoffset = CIRC - (CIRC * (level/100));
+
+    const now = performance.now();
+    if(lastTick !== null){
+      const dt = (now - lastTick)/1000;
+      if(key === 'loud'){ loudSeconds += dt; flushLoudSeconds(dt); }
+    }
+    lastTick = now;
+
+    history.push({ t: now, level });
+    const cutoff = now - 60000;
+    while(history.length && history[0].t < cutoff) history.shift();
+
+    dailyAccum.sum += level;
+    dailyAccum.count += 1;
+    if(now - lastFlush > 10000){ flushDaily(); lastFlush = now; }
+
+    drawHistory();
+    updateStatsDisplay();
+    rafId = requestAnimationFrame(frame);
+  }
+
+  // ---------- mic permission handling ----------
+  function renderErrorSteps(){
+    errorSteps.innerHTML = t().errSteps.map(s => `<li>${s}</li>`).join('');
+    iframeWarnText.textContent = t().iframeWarnText;
+    openTabBtn.textContent = t().openTabBtn;
+    iframeWarn.classList.toggle('show', inIframe);
+  }
+  function showErrorPanel(){ errorPanel.classList.add('show'); }
+  function hideErrorPanel(){ errorPanel.classList.remove('show'); }
+
+  async function startListening(){
+    try{
+      hideErrorPanel();
+      micNote.textContent = t().micRequesting;
+      const stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false
+        }
+      });
+      audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 2048;
+      analyser.smoothingTimeConstant = 0.2;
+      source = audioCtx.createMediaStreamSource(stream);
+      source.connect(analyser);
+      dataArray = new Float32Array(analyser.fftSize);
+
+      listening = true;
+      toggleBtn.textContent = t().stopBtn;
+      toggleBtn.classList.add('on');
+      micNote.textContent = '';
+      lastTick = null;
+      frame();
+    }catch(err){
+      micNote.textContent = '';
+      if(err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')){
+        renderErrorSteps();
+        showErrorPanel();
+      }else{
+        micNote.textContent = t().micOtherError + (err && err.message ? err.message : err);
+      }
+      applyState('idle');
+    }
+  }
+
+  function stopListening(){
+    listening = false;
+    flushDaily();
+    if(rafId) cancelAnimationFrame(rafId);
+    if(source) source.disconnect();
+    if(audioCtx) audioCtx.close();
+    toggleBtn.textContent = t().startBtn;
+    toggleBtn.classList.remove('on');
+    smoothed = 0;
+    levelNumber.textContent = '0';
+    gaugeFill.style.strokeDashoffset = CIRC;
+    applyState('idle');
+  }
+
+  toggleBtn.addEventListener('click', () => { listening ? stopListening() : startListening(); });
+  retryBtn.addEventListener('click', () => { hideErrorPanel(); startListening(); });
+  openTabBtn.addEventListener('click', () => { window.open(window.location.href, '_blank'); });
+
+  applyState('idle');
+  drawHistory();
+  applyStaticLanguage();
+})();
+</script>
+</body>
+</html>
