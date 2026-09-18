@@ -185,6 +185,7 @@
       <button class="primary" id="toggleBtn">측정 시작</button>
     </div>
     <div class="mic-note" id="micNote"></div>
+    <div id="micDiagnostic" style="display:none; margin-top:10px; text-align:center; font-size:12px; color:var(--chalk-dim); line-height:1.5;"></div>
 
     <div class="error-panel" id="errorPanel">
       <h3 data-i18n="errTitle">마이크를 사용할 수 없어요</h3>
@@ -731,21 +732,81 @@
     openTabBtn.textContent = t().openTabBtn;
     iframeWarn.classList.toggle('show', inIframe);
   }
+
   function showErrorPanel(){ errorPanel.classList.add('show'); }
   function hideErrorPanel(){ errorPanel.classList.remove('show'); }
 
+  function getMicErrorMessage(err){
+    const name = err && err.name ? err.name : '';
+    const msg = err && err.message ? err.message : '';
+
+    if(name === 'NotAllowedError' || name === 'SecurityError')
+      return '마이크 권한이 차단되었습니다. 주소창의 사이트 권한에서 마이크를 허용한 뒤 새로고침하세요.';
+    if(name === 'NotFoundError')
+      return '사용할 수 있는 마이크를 찾지 못했습니다. 마이크가 연결되어 있는지 확인하세요.';
+    if(name === 'NotReadableError')
+      return '마이크가 다른 프로그램에서 사용 중이거나 장치에 접근할 수 없습니다. Zoom·Teams·녹음 프로그램 등을 종료한 뒤 다시 시도하세요.';
+    if(name === 'OverconstrainedError')
+      return '현재 기기에서 요청한 마이크 설정을 사용할 수 없습니다. 기본 마이크 설정으로 다시 시도하세요.';
+    if(name === 'AbortError')
+      return '마이크 연결이 중단되었습니다. 다른 앱의 마이크 사용을 종료한 뒤 다시 시도하세요.';
+    if(name === 'TypeError')
+      return '이 브라우저에서는 마이크 기능을 사용할 수 없습니다. 최신 Chrome 또는 Edge에서 직접 열어주세요.';
+    return '마이크에 연결할 수 없습니다.' + (msg ? ` (${msg})` : '');
+  }
+
+  function updateMicDiagnostic(){
+    const el = document.getElementById('micDiagnostic');
+    if(!el) return;
+
+    const secure = window.isSecureContext;
+    const hasMedia = !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia);
+    let text = '';
+
+    if(!secure){
+      text = '보안 연결(HTTPS)이 아닌 환경에서는 브라우저 마이크를 사용할 수 없습니다.';
+    }else if(!hasMedia){
+      text = '이 브라우저 환경에서는 마이크 API를 사용할 수 없습니다. Chrome/Edge에서 직접 열어주세요.';
+    }else if(inIframe){
+      text = '현재 다른 페이지 안에 삽입된 화면(iframe)입니다. 부모 페이지가 마이크 권한을 허용하지 않으면 측정이 차단될 수 있습니다.';
+    }
+
+    el.textContent = text;
+    el.style.display = text ? 'block' : 'none';
+  }
+
   async function startListening(){
+    updateMicDiagnostic();
+
+    if(!window.isSecureContext){
+      renderErrorSteps();
+      showErrorPanel();
+      micNote.textContent = 'HTTPS 환경에서 직접 열어주세요.';
+      applyState('idle');
+      return;
+    }
+
+    if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+      renderErrorSteps();
+      showErrorPanel();
+      micNote.textContent = '이 브라우저에서는 마이크 기능을 사용할 수 없어요.';
+      applyState('idle');
+      return;
+    }
+
     try{
       hideErrorPanel();
       micNote.textContent = t().micRequesting;
-      const stream = await navigator.mediaDevices.getUserMedia({
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false
-        }
-      });
+
+      // 마이크 옵션을 강제로 지정하지 않고 기본 설정을 사용해
+      // 브라우저/기기별 호환성 문제를 줄입니다.
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      if(audioCtx.state === 'suspended'){
+        await audioCtx.resume();
+      }
+
       analyser = audioCtx.createAnalyser();
       analyser.fftSize = 2048;
       analyser.smoothingTimeConstant = 0.2;
@@ -757,17 +818,81 @@
       toggleBtn.textContent = t().stopBtn;
       toggleBtn.classList.add('on');
       micNote.textContent = '';
+
+      const diag = document.getElementById('micDiagnostic');
+      if(diag){ diag.textContent = ''; diag.style.display = 'none'; }
+
       lastTick = null;
       frame();
+
     }catch(err){
       micNote.textContent = '';
-      if(err && (err.name === 'NotAllowedError' || err.name === 'SecurityError')){
-        renderErrorSteps();
-        showErrorPanel();
-      }else{
-        micNote.textContent = t().micOtherError + (err && err.message ? err.message : err);
+      renderErrorSteps();
+      showErrorPanel();
+
+      const diag = document.getElementById('micDiagnostic');
+      if(diag){
+        diag.textContent = getMicErrorMessage(err);
+        diag.style.display = 'block';
       }
+
+      console.warn('[Classroom Noise Meter] microphone error:', {
+        name: err && err.name,
+        message: err && err.message,
+        secureContext: window.isSecureContext,
+        inIframe,
+        userAgent: navigator.userAgent
+      });
+
       applyState('idle');
+    }
+  }
+
+  function stopListening(){
+    listening = false;
+    flushDaily();
+    if(rafId) cancelAnimationFrame(rafId);
+
+    if(source){
+      source.disconnect();
+      if(source.mediaStream){
+        source.mediaStream.getTracks().forEach(track => track.stop());
+      }
+    }
+    if(audioCtx) audioCtx.close();
+
+    toggleBtn.textContent = t().startBtn;
+    toggleBtn.classList.remove('on');
+    smoothed = 0;
+    levelNumber.textContent = '0';
+    gaugeFill.style.strokeDashoffset = CIRC;
+    applyState('idle');
+  }
+
+  // iframe/웹뷰에서는 window.open이 같은 내부 브라우저에 열릴 수 있어
+  // 명시적인 새 탭 링크 방식으로 시도합니다.
+  openTabBtn.addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = window.location.href;
+    a.target = '_blank';
+    a.rel = 'noopener noreferrer';
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  });
+
+  retryBtn.addEventListener('click', () => {
+    hideErrorPanel();
+    startListening();
+  });
+
+  toggleBtn.addEventListener('click', () => {
+    listening ? stopListening() : startListening();
+  });
+
+  updateMicDiagnostic();
+
+  applyState('idle');
     }
   }
 
